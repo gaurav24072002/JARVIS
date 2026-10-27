@@ -1,3 +1,6 @@
+import truststore
+truststore.inject_into_ssl()
+
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,10 +20,11 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 import edge_tts
 from app.models import ChatRequest, ChatResponse, TTSRequest
 
-RATE_LIMIT_MESSAGE = {
-    "You've reached your daily API limit for this assistance!! "
-    "Please Try Again later !!"
-}
+RATE_LIMIT_MESSAGE = (
+    "You've reached your daily API limit for this assistant. "
+    "Your credits will reset in a few hours, or you can upgrade your plan for more. "
+    "Please try again later."
+)
 
 def _is_rate_limit_error(exc: Exception) -> bool:
     msg = str(exc).lower()
@@ -37,7 +41,7 @@ from app.services.task_manager import TaskManager
 
 from config import (
     VECTOR_STORE_DIR, GROQ_API_KEYS, GROQ_MODEL, TAVILY_API_KEY,
-    EMBEDDING_MODEL, CHUNK_SIZE ,CHUNK_OVERLAP, MAX_CHAT_HISTORY_TURNS,
+    EMBEDDING_MODEL, CHUNK_SIZE, CHUNK_OVERLAP, MAX_CHAT_HISTORY_TURNS,
     ASSISTANT_NAME, TTS_VOICE, TTS_RATE,
 )
 
@@ -58,7 +62,6 @@ vision_service: VisionService = None
 chat_service: ChatService = None
 
 def print_title():
-    """Print the J.A.R.V.I.S ASCII art title."""
     title = """
    ╔══════════════════════════════════════════════════════════╗
    ║                                                          ║
@@ -73,24 +76,26 @@ def print_title():
    ║                                                          ║
    ╚══════════════════════════════════════════════════════════╝
     """
-
     print(title)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global vector_store_service, groq_service, realtime_service, brain_service
-    global task_manager, task_executor, vision_service, chat_service
+    global task_executor, task_manager, vision_service, chat_service
+
     print_title()
-    logger.info("="*60)
-    logger.info("J.A.R.V.I.S - Starting UP...")
-    logger.info("="*60)
+    logger.info("=" * 60)
+    logger.info("J.A.R.V.I.S - Starting Up...")
+    logger.info("=" * 60)
     logger.info("[CONFIG] Assistant name: %s", ASSISTANT_NAME)
-    logger.info("[CONFIG] Groq Model: %s", GROQ_MODEL)
-    logger.info("[CONFIG] Groq API Key loaded: %d", len(GROQ_API_KEYS))
-    logger.info("[CONFIG] Tavily API Key: %s", "configured" if TAVILY_API_KEY else "NOT SET !!")
-    logger.info("[CONFIG] Image generation: Pollinations.ai (free, no API KEY)")
+    logger.info("[CONFIG] Groq model: %s", GROQ_MODEL)
+    logger.info("[CONFIG] Groq API keys loaded: %d", len(GROQ_API_KEYS))
+    logger.info("[CONFIG] Tavily API key: %s", "configured" if TAVILY_API_KEY else "Not configured")
+    logger.info("[CONFIG] Image generation: Pollinations.ai (free, no API key)")
     logger.info("[CONFIG] Embedding model: %s", EMBEDDING_MODEL)
-    logger.info("[CONFIG] chunk size: %d | overlap: %d | Max history turns: %d", CHUNK_SIZE, CHUNK_OVERLAP, MAX_CHAT_HISTORY_TURNS)
+    logger.info("[CONFIG] Chunk size: %d | Overlap: %d | Max history turns: %d",
+            CHUNK_SIZE, CHUNK_OVERLAP, MAX_CHAT_HISTORY_TURNS)
 
     try:
         logger.info("Initializing vector store service...")
@@ -98,25 +103,25 @@ async def lifespan(app: FastAPI):
         vector_store_service = VectorStoreService()
         vector_store_service.create_vector_store()
         logger.info("[TIMING] startup_vector_store: %.3fs", time.perf_counter() - t0)
-        logger.info("Initialising Groq service (general queries)...")
+        logger.info("Initializing Groq service (general queries)...")
         groq_service = GroqService(vector_store_service)
-        logger.info("Groq service initialised succesfully...")
-        logger.info("Initialising Groq Realtime service (with Tavily search)...")
+        logger.info("Groq service initialized successfully")
+        logger.info("Initializing Realtime Groq service (with Tavily search)...")
         realtime_service = RealtimeGroqService(vector_store_service)
-        logger.info("Realtime Groq service initialised successfully")
-        logger.info("Initialising Brain service (Groq query classification)...")
+        logger.info("Realtime Groq service initialized successfully")
+        logger.info("Initializing Brain service (Groq query classification)...")
         brain_service = BrainService(groq_service=groq_service)
-        logger.info("Brain service initialised succesfully")
-        logger.info("Initialising Task Executor...")
+        logger.info("Brain service initialized successfully")
+        logger.info("Initializing Task executor...")
         task_executor = TaskExecutor(groq_service=groq_service)
-        logger.info("TaskExecutor Started Succesfully")
-        logger.info("Initialising Background Task Manager...")
+        logger.info("Task executor initialized successfully")
+        logger.info("Initializing Background task manager...")
         task_manager = TaskManager(task_executor=task_executor)
-        logger.info("Background Task Manager Initialised Succesfully")
-        logger.info("Initalising Vision Service...")
+        logger.info("Background task manager initialized successfully")
+        logger.info("Initializing Vision service (Groq)...")
         vision_service = VisionService()
-        logger.info("Vision Service Initialised Succesfully")
-        logger.info("Initialising chat service...")
+        logger.info("Vision service initialized successfully")
+        logger.info("Initializing chat service...")
 
         chat_service = ChatService(
             groq_service, realtime_service, brain_service,
@@ -125,21 +130,22 @@ async def lifespan(app: FastAPI):
             task_manager=task_manager,
         )
 
-        logger.info("Chat service initialised succesfully")
-        logger.info("="*60)
-        logger.info(" - Vector Store: Ready")
-        logger.info(" - Groq AI (General): Ready")
-        logger.info(" - Groq AI (Realtime): Ready")
-        logger.info(" - Brain (Unified Decision): Ready")
-        logger.info(" - Task Executor: Ready")
-        logger.info(" - Background Task Manager: Ready")
-        logger.info(" - Vision (Groq): Ready")
-        logger.info(" - Chat Service: Ready")
-        logger.info("="*60)
-        logger.info("J.A.R.V.I.S is online and ready!!")
+        logger.info("Chat service initialized successfully")
+        logger.info("=" * 60)
+        logger.info("Service Status:")
+        logger.info("  - Vector Store: Ready")
+        logger.info("  - Groq AI (General): Ready")
+        logger.info("  - Groq AI (Realtime): Ready")
+        logger.info("  - Brain (Unified Decision): Ready")
+        logger.info("  - Task Executor: Ready")
+        logger.info("  - Background Task Manager: Ready")
+        logger.info("  - Vision (Groq): Ready")
+        logger.info("  - Chat Service: Ready")
+        logger.info("=" * 60)
+        logger.info("J.A.R.V.I.S is online and ready!")
         logger.info("API: http://localhost:8000")
         logger.info("Frontend: http://localhost:8000/app/ (open in browser)")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         yield
 
@@ -148,20 +154,20 @@ async def lifespan(app: FastAPI):
 
         if task_manager:
             task_manager.shutdown()
-        
+
         if chat_service:
             for session_id in list(chat_service.sessions.keys()):
                 chat_service.save_chat_session(session_id)
-
-        logger.info("All session saved. GoodBye!!!!")
+            logger.info("All sessions saved. Goodbye!")
 
     except Exception as e:
-        logger.error(f"Fatal Error During StartUP: {e}", exc_info=True)
+        logger.error(f"Fatal error during startup: {e}", exc_info=True)
         raise
+
 
 app = FastAPI(
     title="J.A.R.V.I.S API",
-    description="Just a very Intellegent System like Gaurav",
+    description="Just A Rather Very Intelligent System",
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -187,26 +193,26 @@ class TimingMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(TimingMiddleware)
 
-@app.get("/api")
 
+@app.get("/api")
 async def api_info():
     return {
         "message": "J.A.R.V.I.S API",
         "endpoints": {
             "/chat": "General chat (non-streaming)",
-            "/chat/stream": "Genearal shat (streaming chunks)",
-            "/chat/realtime": "Realtime chat (non streaming)",
+            "/chat/stream": "General chat (streaming chunks)",
+            "/chat/realtime": "Realtime chat (non-streaming)",
             "/chat/realtime/stream": "Realtime chat (streaming chunks)",
             "/chat/jarvis/stream": "Jarvis unified route (two-stage brain: classify -> route -> execute/stream)",
-            "/chat/history/{session_id}": "Get chat hostory",
+            "/chat/history/{session_id}": "Get chat history",
             "/tasks/{task_id}": "Get background task status and result",
             "/health": "System health check",
-            "/tts": "Text-to-speech (POST text, return streamed MP3)"
+            "/tts": "Text-to-speech (POST text, returns streamed MP3)"
         }
     }
 
-@app.get("/health")
 
+@app.get("/health")
 async def health():
     try:
         return {
@@ -224,14 +230,14 @@ async def health():
         logger.warning("[API /health] Error: %s", e)
         return {"status": "degraded", "error": str(e)}
 
+
 @app.post("/chat", response_model=ChatResponse)
-
 async def chat(request: ChatRequest):
-
     if not chat_service:
-        raise HTTPException(status_code=503, detail="Chat service not initialised")
-    
-    logger.info("[API /chat] Incoming | session_id=%s | message_len=%d | message=%.100s", request.session_id or "new", len(request.message), request.message)
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+
+    logger.info("[API /chat] Incoming | session_id=%s | message_len=%d | message=%.100s",
+            request.session_id or "new", len(request.message), request.message)
 
     try:
         session_id = chat_service.get_or_create_session(request.session_id)
@@ -239,19 +245,23 @@ async def chat(request: ChatRequest):
         chat_service.save_chat_session(session_id)
         logger.info("[API /chat] Done | session_id=%s | response_len=%d", session_id[:12], len(response_text))
         return ChatResponse(response=response_text, session_id=session_id)
+
     except ValueError as e:
         logger.warning("[API /chat] Invalid session_id: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
+
     except AllGroqApisFailedError as e:
         logger.error("[API /chat] All Groq APIs failed: %s", e)
         raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
 
+    except Exception as e:
         if _is_rate_limit_error(e):
             logger.warning("[API /chat] Rate limit hit: %s", e)
-            raise HTTPException(status_code=429, detail=str(e))
+            raise HTTPException(status_code=429, detail=RATE_LIMIT_MESSAGE)
+
         logger.error("[API /chat] Error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing chat: {str(e)}")
+
 
 _SPLIT_RE = re.compile(r"(?<=[.!?,;:])\s+")
 _MIN_WORDS_FIRST = 1
@@ -260,6 +270,7 @@ _MERGE_IF_WORDS = 2
 _TTS_BUFFER_TIMEOUT = 2.0
 _TTS_BUFFER_MIN_WORDS = 4
 _ABBREV_HOLD_RE = re.compile(r"^(?:Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|Vs|Etc)\.$", re.IGNORECASE)
+
 
 def _should_hold_sentence_for_continuation(sent: str) -> bool:
     t = sent.strip()

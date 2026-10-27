@@ -1,15 +1,11 @@
+import truststore
+truststore.inject_into_ssl()
 import subprocess
 import sys
 import os
 import ssl
 from pathlib import Path
 import uvicorn
-
-# Explicitly bypass SSL verification inside the Uvicorn worker process
-ssl._create_default_https_context = ssl._create_unverified_context
-os.environ["CURL_CA_BUNDLE"] = ""
-os.environ["PYTHONHTTPSVERIFY"] = "0"
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 def _ensure_thinking_audio():
 

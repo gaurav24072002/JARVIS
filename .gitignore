@@ -2,3 +2,6 @@
 local_models
 .venv
 __pycache__
+database/chats_data/*
+database/vector_store
+frontend/audio/*
